@@ -1,6 +1,6 @@
 //! macOS native app-menu integration.
 //!
-//! Installs:  [Cocoa-Way]  [Connections ▾]
+//! Installs:  [Veil]  [Connections ▾]
 //! into NSApplication's main menu.
 //!
 //! "Connections" menu:
@@ -319,7 +319,7 @@ pub fn show_connection_error(message: &str, mtm: MainThreadMarker) {
 pub fn show_startup_error(message: &str, mtm: MainThreadMarker) {
     unsafe {
         let alert = NSAlert::new(mtm);
-        alert.setMessageText(&NSString::from_str("Cocoa-Way Could Not Start"));
+        alert.setMessageText(&NSString::from_str("Veil Display Could Not Start"));
         alert.setInformativeText(&NSString::from_str(message));
         alert.addButtonWithTitle(&NSString::from_str("Quit"));
         alert.runModal();
@@ -382,7 +382,7 @@ pub fn setup_menu(
         let app_menu = NSMenu::new(mtm);
         let quit = NSMenuItem::initWithTitle_action_keyEquivalent(
             mtm.alloc::<NSMenuItem>(),
-            &NSString::from_str("Quit Cocoa-Way"),
+            &NSString::from_str("Quit Veil"),
             Some(sel!(terminate:)),
             &NSString::from_str("q"),
         );

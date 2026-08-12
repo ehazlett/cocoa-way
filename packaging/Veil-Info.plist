@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>Veil Display</string>
+  <string>Veil</string>
   <key>CFBundleIdentifier</key>
   <string>dev.veil.display</string>
   <key>CFBundleName</key>
@@ -13,7 +13,7 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleIconFile</key>
-  <string>VeilDisplay</string>
+  <string>Veil</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

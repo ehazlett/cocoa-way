@@ -170,9 +170,10 @@ impl MetalRenderer {
                 .ok_or("Missing frag_border")?;
 
             // ── 5. Pipeline states ───────────────────────────────────────────
-            // blit is OPAQUE — tile content always replaces the background completely.
-            // Using blending=false prevents any transparent holes from showing through.
-            let blit_pipeline = make_pipeline(&device, &vert, &frag_blit, false)?;
+            // Wayland clients use alpha for window shadows, rounded corners, and
+            // popup margins. Composite those pixels over surfaces already drawn
+            // in the native window instead of replacing them with black.
+            let blit_pipeline = make_pipeline(&device, &vert, &frag_blit, true)?;
             let border_pipeline = make_pipeline(&device, &vert, &frag_border, true)?;
 
             Ok(Self {

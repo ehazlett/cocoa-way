@@ -3041,6 +3041,27 @@ fn forward_keyboard_event(state: &mut AppState, event: KeyEvent, time: u32) {
     }
 }
 
+fn forward_super_modifier(state: &mut AppState, pressed: bool, time: u32) {
+    let Some(keyboard) = state.seat.get_keyboard() else {
+        return;
+    };
+    // macOS Command is reported by winit through ModifiersChanged rather than a
+    // SuperLeft KeyboardInput event. Wayland/XKB calls this modifier Mod4.
+    let keycode = smithay::input::keyboard::Keycode::from(133u32);
+    keyboard.input(
+        state,
+        keycode,
+        if pressed {
+            smithay::backend::input::KeyState::Pressed
+        } else {
+            smithay::backend::input::KeyState::Released
+        },
+        SERIAL_COUNTER.next_serial(),
+        time,
+        |_, _, _| FilterResult::<()>::Forward,
+    );
+}
+
 fn rootless_pointer_motion(
     state: &mut AppState,
     rootless: &mut presentation::RootlessWindow,
@@ -3300,6 +3321,7 @@ fn create_event_handler(
     let mut pending_managed_displays = std::collections::HashSet::<String>::new();
     let mut rootless_windows =
         HashMap::<winit::window::WindowId, presentation::RootlessWindow>::new();
+    let mut super_down = false;
 
     let mut last_mouse_pos =
         smithay::utils::Point::<f64, smithay::utils::Logical>::from((0.0, 0.0));
@@ -4540,6 +4562,7 @@ fn create_event_handler(
                     }
                     WindowEvent::Focused(false) => {
                         release_pressed_keys(&mut state, event_time);
+                        super_down = false;
                         if state
                             .seat
                             .get_keyboard()
@@ -4556,6 +4579,13 @@ fn create_event_handler(
                                 Some((std::time::Instant::now(), state.commit_counter));
                         }
                         forward_keyboard_event(&mut state, event, event_time);
+                    }
+                    WindowEvent::ModifiersChanged(modifiers) => {
+                        let pressed = modifiers.state().super_key();
+                        if pressed != super_down {
+                            forward_super_modifier(&mut state, pressed, event_time);
+                            super_down = pressed;
+                        }
                     }
                     WindowEvent::CursorEntered { .. } => {
                         rootless.renderer.window.set_cursor_visible(true);
@@ -4737,6 +4767,7 @@ fn create_event_handler(
                         renderer.window.set_cursor_visible(true);
                     }
                     WindowEvent::Focused(false) => {
+                        super_down = false;
                         if let Some(keyboard) = state.seat.get_keyboard() {
                             let pressed_keys = keyboard.pressed_keys();
                             if !pressed_keys.is_empty() {
@@ -4758,6 +4789,17 @@ fn create_event_handler(
                         }
                     }
                     WindowEvent::Focused(true) => {}
+                    WindowEvent::ModifiersChanged(modifiers) => {
+                        let pressed = modifiers.state().super_key();
+                        if pressed != super_down {
+                            forward_super_modifier(
+                                &mut state,
+                                pressed,
+                                start_time.elapsed().as_millis() as u32,
+                            );
+                            super_down = pressed;
+                        }
+                    }
                     WindowEvent::KeyboardInput {
                         event:
                             KeyEvent {

@@ -19,6 +19,12 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/Veil.icns"
 
+# Make the development bundle portable just like a release bundle: copy all
+# non-system dylibs into Contents/Frameworks, rewrite their install names, and
+# include xkeyboard-config data. This keeps Veil.app independent of Homebrew at
+# runtime even though Homebrew may provide build dependencies.
+"$root/scripts/bundle-macos-app.sh" "$app"
+
 # Ad-hoc signing is suitable for local development. Distribution builds should
 # replace '-' with the Developer ID Application identity used for the Veil DMG.
 codesign --force --deep --sign "${VEIL_CODESIGN_IDENTITY:--}" "$app"

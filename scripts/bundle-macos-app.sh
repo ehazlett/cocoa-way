@@ -8,6 +8,9 @@ fi
 
 APP_DIR=$1
 MAIN_BIN="${APP_DIR}/Contents/MacOS/cocoa-way"
+if [[ ! -f "${MAIN_BIN}" && -f "${APP_DIR}/Contents/MacOS/Veil" ]]; then
+    MAIN_BIN="${APP_DIR}/Contents/MacOS/Veil"
+fi
 FRAMEWORKS_DIR="${APP_DIR}/Contents/Frameworks"
 RESOURCES_DIR="${APP_DIR}/Contents/Resources"
 
@@ -16,6 +19,7 @@ if [[ ! -f "${MAIN_BIN}" ]]; then
     exit 1
 fi
 
+rm -rf "${FRAMEWORKS_DIR}"
 mkdir -p "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}"
 
 find_xkb_config_root() {

@@ -475,7 +475,7 @@ pub fn setup_menu(
             mtm.alloc::<NSMenuItem>(),
             &NSString::from_str("Show Default Display"),
             Some(sel!(showDefaultDisplay:)),
-            &NSString::from_str("1"),
+            &NSString::from_str(""),
         );
         let _: () = msg_send![&*show_display, setTarget: &*handler];
         view_menu.addItem(&show_display);

@@ -143,7 +143,10 @@ impl PointerAxisTracker {
             }
             MouseScrollDelta::PixelDelta(position) => {
                 let logical = position.to_logical::<f64>(scale_factor.max(f64::EPSILON));
-                ((-logical.x, -logical.y), AxisSource::Finger, None)
+                // AppKit already supplies the trackpad's momentum events. Advertising
+                // these precise pixel deltas as Finger makes Wayland clients start a
+                // second kinetic scroll when the physical gesture ends.
+                ((-logical.x, -logical.y), AxisSource::Wheel, None)
             }
         };
 
@@ -1353,14 +1356,14 @@ mod pointer_axis_tests {
             )
             .expect("non-zero trackpad movement should produce a frame");
 
-        assert_eq!(frame.source, Some(AxisSource::Finger));
+        assert_eq!(frame.source, Some(AxisSource::Wheel));
         assert_eq!(frame.axis, (-6.0, 4.0));
         assert_eq!(frame.stop, (false, false));
         assert_eq!(frame.v120, None);
     }
 
     #[test]
-    fn zero_delta_end_stops_every_active_trackpad_axis() {
+    fn precise_trackpad_end_does_not_request_client_kinetic_scroll() {
         let mut tracker = PointerAxisTracker::default();
         tracker.frame(
             1.0,
@@ -1368,27 +1371,16 @@ mod pointer_axis_tests {
             TouchPhase::Started,
             10,
         );
-        let end = tracker
-            .frame(
-                1.0,
-                MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 0.0)),
-                TouchPhase::Ended,
-                11,
-            )
-            .expect("the terminal frame must carry axis_stop");
-
-        assert_eq!(end.axis, (0.0, 0.0));
-        assert_eq!(end.stop, (true, true));
         assert!(
             tracker
                 .frame(
                     1.0,
                     MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 0.0)),
                     TouchPhase::Ended,
-                    12,
+                    11,
                 )
                 .is_none(),
-            "a completed gesture must not leak active axes"
+            "AppKit owns momentum, so the client must not receive a finger stop"
         );
     }
 

@@ -33,7 +33,7 @@ pub fn client_metadata(
 
 pub fn prefixed_title(vm_name: Option<&str>, title: &str) -> String {
     match vm_name.map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => format!("[{name}] {title}"),
+        Some(name) => format!("{name} — {title}"),
         None => title.to_string(),
     }
 }
@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn prefixes_rootless_titles_with_vm_name() {
-        assert_eq!(prefixed_title(Some("dev"), "Chromium"), "[dev] Chromium");
+        assert_eq!(prefixed_title(Some("dev"), "Chromium"), "dev — Chromium");
         assert_eq!(prefixed_title(None, "Chromium"), "Chromium");
         assert_eq!(prefixed_title(Some("  "), "Chromium"), "Chromium");
     }

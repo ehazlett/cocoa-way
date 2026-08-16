@@ -20,6 +20,7 @@ mod container_sessions;
 mod control_api;
 mod control_protocol;
 mod diagnostics;
+mod display_link;
 mod keymap;
 mod layout;
 mod macos_gestures;
@@ -2685,13 +2686,32 @@ fn main() {
         cleanup_stale_display_runtime_dirs();
     }
     let event_loop = EventLoop::new().unwrap();
+    let display_sync_requested = display_link::enabled();
+    let display_link_proxy = event_loop.create_proxy();
+    if !display_sync_requested {
+        log::info!("Frame pacing: fixed 16 ms timer");
+    }
     macos_gestures::set_event_loop_proxy(event_loop.create_proxy());
     let mut event_handler = None;
+    let mut display_link = None;
     event_loop
         .run(move |event, target| {
             if event_handler.is_none() {
                 if !matches!(event, Event::Resumed) {
                     return;
+                }
+                if display_sync_requested && display_link.is_none() {
+                    match display_link::DisplayLink::start(display_link_proxy.clone()) {
+                        Ok(link) => {
+                            log::info!("Frame pacing: host CVDisplayLink");
+                            display_link = Some(link);
+                        }
+                        Err(error) => {
+                            log::error!("Host display synchronization is unavailable: {error}");
+                            target.exit();
+                            return;
+                        }
+                    }
                 }
                 match create_event_handler(target) {
                     Ok(handler) => event_handler = Some(handler),
@@ -3363,6 +3383,7 @@ fn create_event_handler(
         smithay::utils::Point::<f64, smithay::utils::Logical>::from((0.0, 0.0));
     let start_time = std::time::Instant::now();
     let frame_duration = std::time::Duration::from_millis(16); // ~60fps cap
+    let display_synced = display_link::enabled();
     let active_poll_interval = std::time::Duration::from_millis(4);
     let idle_poll_interval = std::time::Duration::from_millis(16);
     let mut last_frame = std::time::Instant::now();
@@ -5311,6 +5332,7 @@ fn create_event_handler(
             }
             Event::AboutToWait => {
                 let now = std::time::Instant::now();
+                let display_tick = display_link::take_tick();
                 if let Some(parent_pid) = display_worker_parent
                     && now.duration_since(last_parent_check) >= std::time::Duration::from_secs(1)
                 {
@@ -5379,7 +5401,12 @@ fn create_event_handler(
                 } else {
                     idle_poll_interval
                 };
-                if state.needs_redraw && now.duration_since(last_frame) >= frame_duration {
+                let frame_due = if display_synced {
+                    display_tick
+                } else {
+                    now.duration_since(last_frame) >= frame_duration
+                };
+                if state.needs_redraw && frame_due {
                     if presentation_mode.is_rootless() {
                         let dirty_roots = std::mem::take(&mut state.rootless_dirty_surfaces);
                         for window in rootless_windows.values() {
@@ -5394,7 +5421,7 @@ fn create_event_handler(
                     }
                     last_frame = now;
                     target.set_control_flow(ControlFlow::WaitUntil(now + poll_interval));
-                } else if state.needs_redraw {
+                } else if state.needs_redraw && !display_synced {
                     target.set_control_flow(ControlFlow::WaitUntil(last_frame + frame_duration));
                 } else {
                     target.set_control_flow(ControlFlow::WaitUntil(now + poll_interval));

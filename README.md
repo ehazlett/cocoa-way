@@ -226,6 +226,25 @@ For classic SSH socket conflicts, `run_waypipe.sh` adds `StreamLocalBindUnlink=y
 waypipe ssh -o StreamLocalBindUnlink=yes user@host application
 ```
 
+### Experimental display-synchronized pacing
+
+Cocoa-Way normally limits compositor redraws with its fixed 16 ms timer. An
+experimental macOS display-link mode can instead align redraw opportunities to
+the main display:
+
+```bash
+COCOA_WAY_FRAME_PACING=display-link cocoa-way
+```
+
+Only the exact value `display-link` enables the experiment. Omitting the
+variable, or setting it to any other value, keeps the fixed timer. The setting
+is inherited by dedicated display workers.
+
+This mode is opt-in because a ProMotion display can provide ticks above the
+60 Hz refresh rate currently advertised to Wayland clients. It may improve
+scrolling latency at the cost of additional CPU and frame throughput. It is not
+yet the production default.
+
 ## Roadmap
 
 - Continue refining GUI behavior and improving Cocoa-Way's responsiveness and runtime efficiency.

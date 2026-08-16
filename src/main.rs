@@ -2982,7 +2982,7 @@ mod display_slot_tests {
     }
 }
 
-fn release_pressed_keys(state: &mut AppState, time: u32) {
+fn reset_keyboard_state(state: &mut AppState, time: u32) {
     let Some(keyboard) = state.seat.get_keyboard() else {
         return;
     };
@@ -2996,6 +2996,20 @@ fn release_pressed_keys(state: &mut AppState, time: u32) {
             |_, _, _| FilterResult::<()>::Forward,
         );
     }
+
+    // Synthesized modifiers (notably macOS Command/Wayland Mod4) are not
+    // necessarily represented in pressed_keys(). Clear every depressed
+    // modifier explicitly at a native-window focus boundary while preserving
+    // lock state. Otherwise Command-clicking between windows can leave Mod4
+    // active and terminals encode Enter/Tab as modified CSI-u sequences.
+    let mut modifiers = keyboard.modifier_state();
+    modifiers.ctrl = false;
+    modifiers.alt = false;
+    modifiers.shift = false;
+    modifiers.logo = false;
+    modifiers.iso_level3_shift = false;
+    modifiers.iso_level5_shift = false;
+    keyboard.set_modifier_state(modifiers);
 }
 
 fn activate_toplevel(
@@ -3321,6 +3335,10 @@ fn create_event_handler(
     let mut pending_managed_displays = std::collections::HashSet::<String>::new();
     let mut rootless_windows =
         HashMap::<winit::window::WindowId, presentation::RootlessWindow>::new();
+    // All rootless native windows share one Wayland seat. Track which native
+    // window owns that seat's keyboard focus so a late focus/key event from a
+    // different window cannot mutate the newly focused client's XKB state.
+    let mut focused_rootless_window = None;
     let mut super_down = false;
 
     let mut last_mouse_pos =
@@ -4555,36 +4573,52 @@ fn create_event_handler(
                         rootless.renderer.window.set_visible(false);
                     }
                     WindowEvent::Destroyed => {
+                        if focused_rootless_window == Some(window_id) {
+                            reset_keyboard_state(&mut state, event_time);
+                            activate_toplevel(&mut state, None);
+                            focused_rootless_window = None;
+                            super_down = false;
+                        }
                         keep_window = false;
                     }
                     WindowEvent::Focused(true) => {
+                        if focused_rootless_window != Some(window_id) {
+                            // macOS may report the new window's focus before the
+                            // old window's blur. Release into the old focus first
+                            // so no pressed key crosses between Wayland clients.
+                            reset_keyboard_state(&mut state, event_time);
+                        }
                         activate_toplevel(&mut state, Some(rootless.toplevel.wl_surface()));
+                        focused_rootless_window = Some(window_id);
+                        super_down = false;
                     }
                     WindowEvent::Focused(false) => {
-                        release_pressed_keys(&mut state, event_time);
-                        super_down = false;
-                        if state
-                            .seat
-                            .get_keyboard()
-                            .and_then(|keyboard| keyboard.current_focus())
-                            .as_ref()
-                            == Some(rootless.toplevel.wl_surface())
-                        {
+                        // A blur can arrive after another native window's focus.
+                        // In that case it must not release the new client's keys
+                        // or clear its Wayland focus.
+                        if focused_rootless_window == Some(window_id) {
+                            reset_keyboard_state(&mut state, event_time);
                             activate_toplevel(&mut state, None);
+                            focused_rootless_window = None;
+                            super_down = false;
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
-                        if pending_input_sample.is_none() {
-                            pending_input_sample =
-                                Some((std::time::Instant::now(), state.commit_counter));
+                        if focused_rootless_window == Some(window_id) {
+                            if pending_input_sample.is_none() {
+                                pending_input_sample =
+                                    Some((std::time::Instant::now(), state.commit_counter));
+                            }
+                            forward_keyboard_event(&mut state, event, event_time);
                         }
-                        forward_keyboard_event(&mut state, event, event_time);
                     }
                     WindowEvent::ModifiersChanged(modifiers) => {
-                        let pressed = modifiers.state().super_key();
-                        if pressed != super_down {
-                            forward_super_modifier(&mut state, pressed, event_time);
-                            super_down = pressed;
+                        if focused_rootless_window == Some(window_id) {
+                            let pressed = modifiers.state().super_key();
+                            if pressed != super_down {
+                                forward_super_modifier(&mut state, pressed, event_time);
+                                super_down = pressed;
+                            }
                         }
                     }
                     WindowEvent::CursorEntered { .. } => {
@@ -4750,7 +4784,7 @@ fn create_event_handler(
                         if display_worker_slot.is_some() {
                             target.exit();
                         } else {
-                            release_pressed_keys(
+                            reset_keyboard_state(
                                 &mut state,
                                 start_time.elapsed().as_millis() as u32,
                             );

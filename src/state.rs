@@ -78,6 +78,7 @@ pub struct AppState {
     last_pasteboard_poll: std::time::Instant,
     pointer_gesture: PointerGestureTracker,
     pointer_axis: PointerAxisTracker,
+    cursor_hidden: bool,
 }
 
 #[derive(Debug)]
@@ -313,6 +314,7 @@ impl AppState {
             last_pasteboard_poll: std::time::Instant::now() - std::time::Duration::from_millis(100),
             pointer_gesture: PointerGestureTracker::default(),
             pointer_axis: PointerAxisTracker::default(),
+            cursor_hidden: false,
         })
     }
 
@@ -1061,8 +1063,17 @@ impl SeatHandler for AppState {
         use smithay::input::pointer::CursorIcon;
         unsafe {
             match image {
-                CursorImageStatus::Hidden => NSCursor::hide(),
+                CursorImageStatus::Hidden => {
+                    if !self.cursor_hidden {
+                        NSCursor::hide();
+                        self.cursor_hidden = true;
+                    }
+                }
                 CursorImageStatus::Named(icon) => {
+                    if self.cursor_hidden {
+                        NSCursor::unhide();
+                        self.cursor_hidden = false;
+                    }
                     let cursor = match icon {
                         CursorIcon::Text | CursorIcon::VerticalText => NSCursor::IBeamCursor(),
                         CursorIcon::Pointer => NSCursor::pointingHandCursor(),
@@ -1097,6 +1108,10 @@ impl SeatHandler for AppState {
                 }
                 CursorImageStatus::Surface(_) => {
                     // Custom surface cursor — use arrow fallback for now
+                    if self.cursor_hidden {
+                        NSCursor::unhide();
+                        self.cursor_hidden = false;
+                    }
                     NSCursor::arrowCursor().set();
                 }
             }

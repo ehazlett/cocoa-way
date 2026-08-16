@@ -112,6 +112,26 @@ pub struct MetalRenderer {
 }
 
 impl MetalRenderer {
+    pub fn set_window_border_color(&self, color: Option<[u8; 3]>) {
+        use objc2::msg_send;
+        use objc2_app_kit::NSColor;
+
+        match color {
+            Some([red, green, blue]) => unsafe {
+                let color = NSColor::colorWithSRGBRed_green_blue_alpha(
+                    f64::from(red) / 255.0,
+                    f64::from(green) / 255.0,
+                    f64::from(blue) / 255.0,
+                    1.0,
+                );
+                let cg_color: *mut objc2::runtime::AnyObject = msg_send![&color, CGColor];
+                let () = msg_send![&self.layer, setBorderColor: cg_color];
+                self.layer.setBorderWidth(1.0);
+            },
+            None => self.layer.setBorderWidth(0.0),
+        }
+    }
+
     pub fn new(window: Window) -> Result<Self, String> {
         unsafe {
             // ── 1. Get Metal device ──────────────────────────────────────────

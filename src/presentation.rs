@@ -22,6 +22,22 @@ impl RootlessWindow {
     }
 }
 
+pub fn client_metadata(
+    toplevel: &smithay::wayland::shell::xdg::ToplevelSurface,
+) -> Option<crate::client_metadata::ClientMetadata> {
+    use smithay::reexports::wayland_server::Resource;
+    let client = toplevel.wl_surface().client()?;
+    let pid = client.get_data::<crate::state::ClientState>()?.peer_pid?;
+    crate::client_metadata::get(pid)
+}
+
+pub fn prefixed_title(vm_name: Option<&str>, title: &str) -> String {
+    match vm_name.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => format!("[{name}] {title}"),
+        None => title.to_string(),
+    }
+}
+
 impl PresentationMode {
     pub const ENV: &'static str = "COCOA_WAY_PRESENTATION";
 
@@ -563,7 +579,7 @@ fn surface_tree_hit(
 
 #[cfg(test)]
 mod tests {
-    use super::{PresentationMode, honor_rootless_maximize};
+    use super::{PresentationMode, honor_rootless_maximize, prefixed_title};
 
     #[test]
     fn desktop_is_the_compatible_default() {
@@ -588,5 +604,12 @@ mod tests {
         assert!(!honor_rootless_maximize(false, true));
         assert!(honor_rootless_maximize(true, true));
         assert!(honor_rootless_maximize(false, false));
+    }
+
+    #[test]
+    fn prefixes_rootless_titles_with_vm_name() {
+        assert_eq!(prefixed_title(Some("dev"), "Chromium"), "[dev] Chromium");
+        assert_eq!(prefixed_title(None, "Chromium"), "Chromium");
+        assert_eq!(prefixed_title(Some("  "), "Chromium"), "Chromium");
     }
 }

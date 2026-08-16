@@ -1128,6 +1128,7 @@ impl SeatHandler for AppState {
 }
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    pub peer_pid: Option<u32>,
 }
 impl smithay::reexports::wayland_server::backend::ClientData for ClientState {
     fn initialized(&self, _client_id: smithay::reexports::wayland_server::backend::ClientId) {}

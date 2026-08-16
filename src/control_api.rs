@@ -136,6 +136,7 @@ fn dispatch(
             &command,
             diagnostics_snapshot(path, request.session.as_deref(), request.limit),
         ),
+        "register-client" => register_client(request.session.as_deref(), &command),
         "logs" => match resolve_session(request.session.as_deref()) {
             Ok((index, session)) => ControlResponse::success(
                 &command,
@@ -155,6 +156,43 @@ fn dispatch(
             "unsupported command; use status, applications, running, displays, images, volumes, runtimes, tasks, environment, features, diagnostics, logs, check, launch, or stop",
         ),
     }
+}
+
+fn register_client(payload: Option<&str>, command: &str) -> ControlResponse {
+    #[derive(serde::Deserialize)]
+    struct Registration {
+        pid: u32,
+        vm_name: String,
+        #[serde(default)]
+        color: String,
+    }
+
+    let registration = match payload
+        .ok_or_else(|| "client registration payload is required".to_string())
+        .and_then(|payload| {
+            serde_json::from_str::<Registration>(payload).map_err(|error| error.to_string())
+        }) {
+        Ok(registration) => registration,
+        Err(error) => return ControlResponse::failure(command, error),
+    };
+    if registration.pid == 0 || registration.vm_name.trim().is_empty() {
+        return ControlResponse::failure(command, "pid and vm_name are required");
+    }
+    let color = if registration.color.is_empty() {
+        None
+    } else {
+        match crate::client_metadata::parse_hex_color(&registration.color) {
+            Some(color) => Some(color),
+            None => {
+                return ControlResponse::failure(command, "color must be six hexadecimal digits");
+            }
+        }
+    };
+    crate::client_metadata::register(registration.pid, registration.vm_name.clone(), color);
+    ControlResponse::success(
+        command,
+        json!({ "registered": true, "pid": registration.pid }),
+    )
 }
 
 fn queue_session_command(

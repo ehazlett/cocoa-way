@@ -13,6 +13,7 @@ use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 mod application_model;
 mod audio;
+mod client_metadata;
 mod connections;
 mod container_mode;
 mod container_sessions;
@@ -3293,11 +3294,13 @@ fn create_event_handler(
             match listener.accept() {
                 Ok(Some(stream)) => {
                     use crate::state::ClientState;
-                    info!("New client connected");
+                    let peer_pid = client_metadata::peer_pid(&stream);
+                    info!("New client connected (pid={peer_pid:?})");
                     if let Err(error) = loop_handle.insert_client(
                         stream,
                         Arc::new(ClientState {
                             compositor_state: Default::default(),
+                            peer_pid,
                         }),
                     ) {
                         log::warn!("Could not register a Wayland client: {error}");
@@ -3422,8 +3425,13 @@ fn create_event_handler(
                     else {
                         continue;
                     };
+                    let metadata = presentation::client_metadata(&toplevel);
+                    let title = presentation::prefixed_title(
+                        metadata.as_ref().map(|value| value.vm_name.as_str()),
+                        &presentation::toplevel_title(&toplevel),
+                    );
                     let attributes = winit::window::Window::default_attributes()
-                        .with_title(presentation::toplevel_title(&toplevel))
+                        .with_title(title)
                         .with_visible(true)
                         .with_inner_size(winit::dpi::LogicalSize::new(960.0f64, 720.0f64));
                     let rootless_renderer = target
@@ -3432,6 +3440,9 @@ fn create_event_handler(
                         .and_then(metal_renderer::MetalRenderer::new);
                     match rootless_renderer {
                         Ok(rootless_renderer) => {
+                            rootless_renderer.set_window_border_color(
+                                metadata.as_ref().and_then(|value| value.color),
+                            );
                             if let Err(error) =
                                 macos_gestures::install_swipe_recognizer(&rootless_renderer.window)
                             {
@@ -3503,10 +3514,14 @@ fn create_event_handler(
                         .values()
                         .find(|window| window.surface_id() == surface_id)
                     {
+                        let metadata = presentation::client_metadata(&window.toplevel);
                         window
                             .renderer
                             .window
-                            .set_title(&presentation::toplevel_title(&window.toplevel));
+                            .set_title(&presentation::prefixed_title(
+                                metadata.as_ref().map(|value| value.vm_name.as_str()),
+                                &presentation::toplevel_title(&window.toplevel),
+                            ));
                     }
                 }
                 CompositorMessage::RootlessMaximize { surface, maximized } => {

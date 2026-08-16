@@ -1,12 +1,6 @@
 //! macOS native app-menu integration.
 //!
-//! Installs:  [Veil]  [Connections ▾]
-//! into NSApplication's main menu.
-//!
-//! "Connections" menu:
-//!   - "Connect to Machine…"  → shows a quick-connect dialog
-//!   - separator
-//!   - saved connections from ~/.config/cocoa-way/connections.toml
+//! Installs Veil's native application menus into NSApplication's main menu.
 
 use std::sync::Mutex;
 use std::sync::mpsc::Sender;
@@ -434,7 +428,8 @@ pub fn setup_menu(
         let _: () = msg_send![&*disconnect, setTarget: &*handler];
         conn_menu.addItem(&disconnect);
         conn_item.setSubmenu(Some(&conn_menu));
-        root.addItem(&conn_item);
+        // Veil manages connections itself; do not expose Cocoa-Way's standalone
+        // connection UI in the embedded display app.
 
         // ── 3. Container menu ─────────────────────────────────────────────────
         let container_item = label_item("Container", mtm);
@@ -470,7 +465,8 @@ pub fn setup_menu(
         }
 
         container_item.setSubmenu(Some(&container_menu));
-        root.addItem(&container_item);
+        // Veil manages VMs itself; do not expose Cocoa-Way's container UI in
+        // the embedded display app.
 
         // ── 4. View menu ──────────────────────────────────────────────────────
         let view_item = label_item("View", mtm);

@@ -3056,16 +3056,11 @@ fn forward_keyboard_event(state: &mut AppState, event: KeyEvent, time: u32) {
     }
 }
 
-fn forward_command_modifier(state: &mut AppState, pressed: bool, time: u32) {
+fn forward_synthetic_modifier(state: &mut AppState, keycode: u32, pressed: bool, time: u32) {
     let Some(keyboard) = state.seat.get_keyboard() else {
         return;
     };
-    // macOS Command is reported by winit through ModifiersChanged rather than a
-    // KeyboardInput event. Present it to Wayland clients as Linux Control so
-    // native macOS chords (Command-C/V/W/T/L and Command-click) operate the
-    // corresponding application actions without per-shortcut special cases.
-    // XKB keycodes are Linux evdev codes plus 8: Left Control is 29 + 8.
-    let keycode = smithay::input::keyboard::Keycode::from(crate::keymap::MACOS_COMMAND_XKB_KEYCODE);
+    let keycode = smithay::input::keyboard::Keycode::from(keycode);
     keyboard.input(
         state,
         keycode,
@@ -3078,6 +3073,22 @@ fn forward_command_modifier(state: &mut AppState, pressed: bool, time: u32) {
         time,
         |_, _, _| FilterResult::<()>::Forward,
     );
+}
+
+fn forward_command_modifier(state: &mut AppState, pressed: bool, time: u32) {
+    // Present macOS Command to Wayland clients as Linux Control for native-style
+    // application shortcuts. XKB keycodes are Linux evdev codes plus 8.
+    forward_synthetic_modifier(
+        state,
+        crate::keymap::MACOS_COMMAND_XKB_KEYCODE,
+        pressed,
+        time,
+    );
+}
+
+fn forward_super_modifier(state: &mut AppState, pressed: bool, time: u32) {
+    // XKB keycodes are Linux evdev codes plus 8: Left Super is 125 + 8.
+    forward_synthetic_modifier(state, 125 + 8, pressed, time);
 }
 
 fn rootless_pointer_motion(
@@ -3346,6 +3357,7 @@ fn create_event_handler(
     // different window cannot mutate the newly focused client's XKB state.
     let mut focused_rootless_window = None;
     let mut command_down = false;
+    let mut terminal_clipboard_down = false;
 
     let mut last_mouse_pos =
         smithay::utils::Point::<f64, smithay::utils::Logical>::from((0.0, 0.0));
@@ -4596,6 +4608,7 @@ fn create_event_handler(
                             activate_toplevel(&mut state, None);
                             focused_rootless_window = None;
                             command_down = false;
+                            terminal_clipboard_down = false;
                         }
                         keep_window = false;
                     }
@@ -4609,6 +4622,7 @@ fn create_event_handler(
                         activate_toplevel(&mut state, Some(rootless.toplevel.wl_surface()));
                         focused_rootless_window = Some(window_id);
                         command_down = false;
+                        terminal_clipboard_down = false;
                     }
                     WindowEvent::Focused(false) => {
                         // A blur can arrive after another native window's focus.
@@ -4619,6 +4633,7 @@ fn create_event_handler(
                             activate_toplevel(&mut state, None);
                             focused_rootless_window = None;
                             command_down = false;
+                            terminal_clipboard_down = false;
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
@@ -4632,7 +4647,33 @@ fn create_event_handler(
                             // event so clients see only the synthesized Control
                             // modifier, not an unusable Super+Control chord.
                             if !crate::keymap::is_macos_command_key(event.physical_key) {
+                                let event_state = event.state;
+                                let terminal_clipboard = command_down
+                                    && matches!(
+                                        event.physical_key,
+                                        winit::keyboard::PhysicalKey::Code(
+                                            winit::keyboard::KeyCode::KeyC
+                                                | winit::keyboard::KeyCode::KeyV
+                                        )
+                                    )
+                                    && presentation::uses_mod4_clipboard(&rootless.toplevel);
+                                if event_state == ElementState::Pressed
+                                    && terminal_clipboard
+                                    && !terminal_clipboard_down
+                                {
+                                    forward_command_modifier(&mut state, false, event_time);
+                                    forward_super_modifier(&mut state, true, event_time);
+                                    terminal_clipboard_down = true;
+                                }
                                 forward_keyboard_event(&mut state, event, event_time);
+                                if event_state == ElementState::Released && terminal_clipboard_down
+                                {
+                                    forward_super_modifier(&mut state, false, event_time);
+                                    if command_down {
+                                        forward_command_modifier(&mut state, true, event_time);
+                                    }
+                                    terminal_clipboard_down = false;
+                                }
                             }
                         }
                     }
@@ -4872,8 +4913,8 @@ fn create_event_handler(
                                 Some((std::time::Instant::now(), state.commit_counter));
                         }
                         if crate::keymap::is_macos_command_key(physical_key) {
-                            // ModifiersChanged translates this physical Command
-                            // key to Control for Wayland clients.
+                            // ModifiersChanged translates physical Command to
+                            // Control for Wayland clients.
                         } else if let winit::keyboard::PhysicalKey::Code(key_code) = physical_key {
                             match key_code {
                                 _ => {

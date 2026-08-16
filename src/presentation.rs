@@ -38,6 +38,22 @@ pub fn prefixed_title(vm_name: Option<&str>, title: &str) -> String {
     }
 }
 
+pub fn uses_mod4_clipboard(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface) -> bool {
+    use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+    let app_id = smithay::wayland::compositor::with_states(toplevel.wl_surface(), |states| {
+        states
+            .data_map
+            .get::<XdgToplevelSurfaceData>()
+            .and_then(|data| data.lock().ok()?.app_id.clone())
+    });
+    app_id.is_some_and(|app_id| app_id_uses_mod4_clipboard(&app_id))
+}
+
+fn app_id_uses_mod4_clipboard(app_id: &str) -> bool {
+    let app_id = app_id.to_ascii_lowercase();
+    app_id == "foot" || app_id.ends_with(".foot")
+}
+
 impl PresentationMode {
     pub const ENV: &'static str = "COCOA_WAY_PRESENTATION";
 
@@ -579,7 +595,9 @@ fn surface_tree_hit(
 
 #[cfg(test)]
 mod tests {
-    use super::{PresentationMode, honor_rootless_maximize, prefixed_title};
+    use super::{
+        PresentationMode, app_id_uses_mod4_clipboard, honor_rootless_maximize, prefixed_title,
+    };
 
     #[test]
     fn desktop_is_the_compatible_default() {
@@ -611,5 +629,12 @@ mod tests {
         assert_eq!(prefixed_title(Some("dev"), "Chromium"), "[dev] Chromium");
         assert_eq!(prefixed_title(None, "Chromium"), "Chromium");
         assert_eq!(prefixed_title(Some("  "), "Chromium"), "Chromium");
+    }
+
+    #[test]
+    fn foot_uses_terminal_clipboard_shortcuts() {
+        assert!(app_id_uses_mod4_clipboard("foot"));
+        assert!(app_id_uses_mod4_clipboard("org.codeberg.dnkl.foot"));
+        assert!(!app_id_uses_mod4_clipboard("chromium"));
     }
 }

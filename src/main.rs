@@ -2997,10 +2997,10 @@ fn reset_keyboard_state(state: &mut AppState, time: u32) {
         );
     }
 
-    // Synthesized modifiers (notably macOS Command/Wayland Mod4) are not
+    // Synthesized modifiers (notably macOS Command/Wayland Control) are not
     // necessarily represented in pressed_keys(). Clear every depressed
     // modifier explicitly at a native-window focus boundary while preserving
-    // lock state. Otherwise Command-clicking between windows can leave Mod4
+    // lock state. Otherwise Command-clicking between windows can leave Control
     // active and terminals encode Enter/Tab as modified CSI-u sequences.
     let mut modifiers = keyboard.modifier_state();
     modifiers.ctrl = false;
@@ -3055,13 +3055,16 @@ fn forward_keyboard_event(state: &mut AppState, event: KeyEvent, time: u32) {
     }
 }
 
-fn forward_super_modifier(state: &mut AppState, pressed: bool, time: u32) {
+fn forward_command_modifier(state: &mut AppState, pressed: bool, time: u32) {
     let Some(keyboard) = state.seat.get_keyboard() else {
         return;
     };
     // macOS Command is reported by winit through ModifiersChanged rather than a
-    // SuperLeft KeyboardInput event. Wayland/XKB calls this modifier Mod4.
-    let keycode = smithay::input::keyboard::Keycode::from(133u32);
+    // KeyboardInput event. Present it to Wayland clients as Linux Control so
+    // native macOS chords (Command-C/V/W/T/L and Command-click) operate the
+    // corresponding application actions without per-shortcut special cases.
+    // XKB keycodes are Linux evdev codes plus 8: Left Control is 29 + 8.
+    let keycode = smithay::input::keyboard::Keycode::from(crate::keymap::MACOS_COMMAND_XKB_KEYCODE);
     keyboard.input(
         state,
         keycode,
@@ -3339,7 +3342,7 @@ fn create_event_handler(
     // window owns that seat's keyboard focus so a late focus/key event from a
     // different window cannot mutate the newly focused client's XKB state.
     let mut focused_rootless_window = None;
-    let mut super_down = false;
+    let mut command_down = false;
 
     let mut last_mouse_pos =
         smithay::utils::Point::<f64, smithay::utils::Logical>::from((0.0, 0.0));
@@ -4577,7 +4580,7 @@ fn create_event_handler(
                             reset_keyboard_state(&mut state, event_time);
                             activate_toplevel(&mut state, None);
                             focused_rootless_window = None;
-                            super_down = false;
+                            command_down = false;
                         }
                         keep_window = false;
                     }
@@ -4590,7 +4593,7 @@ fn create_event_handler(
                         }
                         activate_toplevel(&mut state, Some(rootless.toplevel.wl_surface()));
                         focused_rootless_window = Some(window_id);
-                        super_down = false;
+                        command_down = false;
                     }
                     WindowEvent::Focused(false) => {
                         // A blur can arrive after another native window's focus.
@@ -4600,7 +4603,7 @@ fn create_event_handler(
                             reset_keyboard_state(&mut state, event_time);
                             activate_toplevel(&mut state, None);
                             focused_rootless_window = None;
-                            super_down = false;
+                            command_down = false;
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
@@ -4609,15 +4612,21 @@ fn create_event_handler(
                                 pending_input_sample =
                                     Some((std::time::Instant::now(), state.commit_counter));
                             }
-                            forward_keyboard_event(&mut state, event, event_time);
+                            // winit reports Command both as a physical Super key
+                            // and through ModifiersChanged. Consume the physical
+                            // event so clients see only the synthesized Control
+                            // modifier, not an unusable Super+Control chord.
+                            if !crate::keymap::is_macos_command_key(event.physical_key) {
+                                forward_keyboard_event(&mut state, event, event_time);
+                            }
                         }
                     }
                     WindowEvent::ModifiersChanged(modifiers) => {
                         if focused_rootless_window == Some(window_id) {
                             let pressed = modifiers.state().super_key();
-                            if pressed != super_down {
-                                forward_super_modifier(&mut state, pressed, event_time);
-                                super_down = pressed;
+                            if pressed != command_down {
+                                forward_command_modifier(&mut state, pressed, event_time);
+                                command_down = pressed;
                             }
                         }
                     }
@@ -4801,7 +4810,7 @@ fn create_event_handler(
                         renderer.window.set_cursor_visible(true);
                     }
                     WindowEvent::Focused(false) => {
-                        super_down = false;
+                        command_down = false;
                         if let Some(keyboard) = state.seat.get_keyboard() {
                             let pressed_keys = keyboard.pressed_keys();
                             if !pressed_keys.is_empty() {
@@ -4825,13 +4834,13 @@ fn create_event_handler(
                     WindowEvent::Focused(true) => {}
                     WindowEvent::ModifiersChanged(modifiers) => {
                         let pressed = modifiers.state().super_key();
-                        if pressed != super_down {
-                            forward_super_modifier(
+                        if pressed != command_down {
+                            forward_command_modifier(
                                 &mut state,
                                 pressed,
                                 start_time.elapsed().as_millis() as u32,
                             );
-                            super_down = pressed;
+                            command_down = pressed;
                         }
                     }
                     WindowEvent::KeyboardInput {
@@ -4847,7 +4856,10 @@ fn create_event_handler(
                             pending_input_sample =
                                 Some((std::time::Instant::now(), state.commit_counter));
                         }
-                        if let winit::keyboard::PhysicalKey::Code(key_code) = physical_key {
+                        if crate::keymap::is_macos_command_key(physical_key) {
+                            // ModifiersChanged translates this physical Command
+                            // key to Control for Wayland clients.
+                        } else if let winit::keyboard::PhysicalKey::Code(key_code) = physical_key {
                             match key_code {
                                 _ => {
                                     use smithay::backend::input::KeyState;

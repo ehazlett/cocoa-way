@@ -1,4 +1,16 @@
 use winit::keyboard::{KeyCode, PhysicalKey};
+
+/// XKB keycode synthesized for the macOS Command modifier. XKB keycodes are
+/// Linux evdev codes plus 8; Left Control is evdev code 29.
+pub const MACOS_COMMAND_XKB_KEYCODE: u32 = 29 + 8;
+
+pub fn is_macos_command_key(key: PhysicalKey) -> bool {
+    matches!(
+        key,
+        PhysicalKey::Code(KeyCode::SuperLeft | KeyCode::SuperRight)
+    )
+}
+
 pub fn map_key(key: PhysicalKey) -> Option<u32> {
     match key {
         PhysicalKey::Code(code) => match code {
@@ -128,5 +140,17 @@ mod tests {
         assert_eq!(map_key(PhysicalKey::Code(KeyCode::ShiftLeft)), Some(42));
         assert_eq!(map_key(PhysicalKey::Code(KeyCode::KeyC)), Some(46));
         assert_eq!(map_key(PhysicalKey::Code(KeyCode::KeyV)), Some(47));
+    }
+
+    #[test]
+    fn macos_command_uses_the_xkb_left_control_keycode() {
+        // winit reports Command through ModifiersChanged, so main.rs injects
+        // this XKB keycode directly instead of passing through map_key.
+        assert_eq!(MACOS_COMMAND_XKB_KEYCODE, 37);
+        assert!(is_macos_command_key(PhysicalKey::Code(KeyCode::SuperLeft)));
+        assert!(is_macos_command_key(PhysicalKey::Code(KeyCode::SuperRight)));
+        assert!(!is_macos_command_key(PhysicalKey::Code(
+            KeyCode::ControlLeft
+        )));
     }
 }

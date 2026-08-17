@@ -110,6 +110,8 @@ struct PointerAxisTracker {
     vertical_active: bool,
 }
 
+const MACOS_PRECISE_SCROLL_SCALE: f64 = 0.35;
+
 impl PointerAxisTracker {
     fn frame(
         &mut self,
@@ -146,7 +148,14 @@ impl PointerAxisTracker {
                 // AppKit already supplies the trackpad's momentum events. Advertising
                 // these precise pixel deltas as Finger makes Wayland clients start a
                 // second kinetic scroll when the physical gesture ends.
-                ((-logical.x, -logical.y), AxisSource::Wheel, None)
+                (
+                    (
+                        -logical.x * MACOS_PRECISE_SCROLL_SCALE,
+                        -logical.y * MACOS_PRECISE_SCROLL_SCALE,
+                    ),
+                    AxisSource::Wheel,
+                    None,
+                )
             }
         };
 
@@ -1357,7 +1366,8 @@ mod pointer_axis_tests {
             .expect("non-zero trackpad movement should produce a frame");
 
         assert_eq!(frame.source, Some(AxisSource::Wheel));
-        assert_eq!(frame.axis, (-6.0, 4.0));
+        assert!((frame.axis.0 - -2.1).abs() < 1e-12);
+        assert!((frame.axis.1 - 1.4).abs() < 1e-12);
         assert_eq!(frame.stop, (false, false));
         assert_eq!(frame.v120, None);
     }
